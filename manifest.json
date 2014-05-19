@@ -1,0 +1,17 @@
+{
+	"manifest_version": 2,
+	"name": "ペロペロ",
+	"version": "0.1",
+
+	"description": "Runs a proxy server for Youtube.",
+	"author": "adiosf6f@gmail.com",
+
+	"app": { "background": { "scripts": ["main.js"] } },
+
+	"permissions": [
+		"http://*/*",
+		"https://*/*",
+		"unlimitedStorage",
+		{ "socket": ["tcp-connect", "tcp-listen"] }
+	]
+}
