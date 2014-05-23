@@ -18,22 +18,40 @@ Server.prototype.__proto__ = EventEmitter.prototype;
 
 Server.prototype.listen = function(port) {
 	var t = this;
+
 	tcpServer.create({}, function(server) {
 		tcpServer.listen(server.socketId, '0.0.0.0', port, function(result) {
 			if (result < 0) {
 				console.log('Error listening: ' + chrome.runtime.lastError.message);
 				return;
 			}
-
-			tcpServer.onAccept.addListener(function(info) {
-				if (info.socketId != server.socketId)
-					return;
-				t.acceptConnection_(info.clientSocketId);
-			});
-
+			tcpServer.onAccept.addListener(acceptConnection.bind(t, server.socketId));
 			t.socketId_ = server.socketId;
 		});
 	});
+
+	function acceptConnection(server, my) {
+		if (my.socketId != server)
+			return;
+
+		tcp.onReceive.addListener(processRequest.bind(this, my.clientSocketId));
+		tcp.onReceiveError.addListener(processError.bind(this, my.clientSocketId));
+		tcp.setPaused(my.clientSocketId, false);
+	}
+
+	function processError(client, my) {
+		if (my.socketId != client)
+			return;
+		console.log('Error receiving: socket: %d, code: %d', client, my.resultCode);
+		tcp.disconnect(client);
+		tcp.close(client);
+	}
+
+	function processRequest(client, my) {
+		if (my.socketId != client)
+			return;
+		this.emit('test', client, ab2str(my.data));
+	}
 };
 
 Server.prototype.close = function() {
@@ -50,29 +68,6 @@ Server.prototype.close = function() {
 				tcp.close(infos[i].socketId);
 		});
 	});
-};
-
-Server.prototype.acceptConnection_ = function(client) {
-	var t = this;
-	tcp.onReceive.addListener(function(info) {
-		if (info.socketId != client)
-			return;
-
-		t.processRequest_(info.socketId, info.data);
-	});
-	tcp.onReceiveError.addListener(function(info) {
-		if (info.socketId != client)
-			return;
-
-		console.log('Error receiving: socket: %d, code: %d', info.socketId, info.resultCode);
-		tcp.disconnect(info.socketId);
-		tcp.close(info.socketId);
-	});
-	tcp.setPaused(client, false);
-};
-
-Server.prototype.processRequest_ = function(socket, data) {
-	this.emit('test', socket, ab2str(data));
 };
 
 return {
