@@ -3,7 +3,7 @@ var http = function() {
 var tcp = chrome.sockets.tcp,
 	tcpServer = chrome.sockets.tcpServer;
 
-if (!tcp || !tcpServer)
+if (!tcp || !tcpServer || !EventEmitter)
 	return {};
 
 function ab2str(buf) {
@@ -11,8 +11,10 @@ function ab2str(buf) {
 }
 
 function Server() {
+	EventEmitter.call(this);
 	this.socketId_ = null;
 }
+Server.prototype.__proto__ = EventEmitter.prototype;
 
 Server.prototype.listen = function(port) {
 	var t = this;
@@ -70,7 +72,7 @@ Server.prototype.acceptConnection_ = function(client) {
 };
 
 Server.prototype.processRequest_ = function(socket, data) {
-	console.log(ab2str(data));
+	this.emit('test', socket, ab2str(data));
 };
 
 return {
