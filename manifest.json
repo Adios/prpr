@@ -8,10 +8,8 @@
 
 	"app": { "background": { "scripts": ["main.js"] } },
 
-	"permissions": [
-		"http://*/*",
-		"https://*/*",
-		"unlimitedStorage",
-		{ "socket": ["tcp-connect", "tcp-listen"] }
-	]
+	"sockets": {
+		"tcp": { "connect": "" },
+		"tcpServer": { "listen": "" }
+	}
 }
