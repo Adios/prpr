@@ -9,12 +9,22 @@ if (!tcp || !tcpServer || !EventEmitter)
 function ab2str(buf) {
 	return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
+function mixin(subject, var_objs) {
+	var proto, i, p, len = arguments.length;
+
+	for (i = 0; i++ < len - 1;) {
+		proto = arguments[i].prototype;
+		for (p in proto) {
+			subject.prototype[p] = proto[p];
+		}
+	}
+}
 
 function Server() {
 	EventEmitter.call(this);
 	this.socketId_ = null;
 }
-Server.prototype.__proto__ = EventEmitter.prototype;
+mixin(Server, EventEmitter);
 
 Server.prototype.listen = function(port) {
 	var t = this;
