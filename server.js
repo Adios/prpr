@@ -1,10 +1,8 @@
-if (http && http.Server) {
-	var server = new http.Server();
+if (http.server) {
+	var server = http.server();
 
-	server.listen(1227);
-
-	server.on('test', function anonymous(socket, data) {
-		console.log('%d comes with: %s', socket, data);
-		server.removeListener('test', anonymous);
-	});
+	server.on('message', function anonymous(msg) {
+		console.log('socket %d comes with: %s', msg.socket, msg.raw);
+		server.removeListener('message', anonymous);
+	}).listen(1227);
 }
