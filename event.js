@@ -5,7 +5,7 @@ function EventEmitter() {
 EventEmitter.prototype.emit = function(type, var_args) {
 	var listener = listeners = this.events_[type];
 
-	if (listener == undefined)
+	if (!listener)
 		return false;
 	else if (typeof listener == 'function') {
 		switch (arguments.length) {
@@ -31,10 +31,13 @@ EventEmitter.prototype.emit = function(type, var_args) {
 };
 
 EventEmitter.prototype.addListener = EventEmitter.prototype.on = function(type, listener) {
+	if (typeof listener != 'function')
+		throw TypeError('listener must be a function.');
+
 	// prevent creating an array if there is only one listener.
 	if (!this.events_[type])
 		this.events_[type] = listener;
-	else if (this.events_ instanceof Object)
+	else if (typeof this.events_[type] == 'object')
 		this.events_[type].push(listener);
 	else
 		this.events_[type] = [this.events_[type], listener];
@@ -43,6 +46,9 @@ EventEmitter.prototype.addListener = EventEmitter.prototype.on = function(type, 
 };
 
 EventEmitter.prototype.removeListener = function(type, listener) {
+	if (typeof listener != 'function')
+		throw TypeError('listener must be a function.');
+
 	if (!this.events_[type])
 		return this;
 
@@ -50,12 +56,11 @@ EventEmitter.prototype.removeListener = function(type, listener) {
 		len = list.length,
 		pos = -1;
 
-
-	if (list == listener)
+	if (list === listener)
 		delete this.events_[type];
 	else {
 		for (var i = len; i-- > 0;) {
-			if (list[i] == listener) {
+			if (list[i] === listener) {
 				pos = i;
 				break;
 			}
@@ -64,7 +69,7 @@ EventEmitter.prototype.removeListener = function(type, listener) {
 		if (pos < 0)
 			return this;
 
-		if (list.len == 1) {
+		if (list.len === 1) {
 			list.len = 0;
 			delete this.events_[type];
 		} else {
