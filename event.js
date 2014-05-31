@@ -69,8 +69,8 @@ EventEmitter.prototype.removeListener = function(type, listener) {
 		if (pos < 0)
 			return this;
 
-		if (list.len === 1) {
-			list.len = 0;
+		if (len == 1) {
+			list.length = 0;
 			delete this.events_[type];
 		} else {
 			list.splice(pos, 1);
