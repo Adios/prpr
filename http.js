@@ -3,28 +3,18 @@ var http = function() {
 var tcp = chrome.sockets.tcp,
 	tcpServer = chrome.sockets.tcpServer;
 
-if (!tcp || !tcpServer || !EventEmitter)
+if (!tcp || !tcpServer || !eventEmitter)
 	return {};
 
 function ab2str(buf) {
 	return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
-function mixin(subject, var_objs) {
-	var proto, i, p, len = arguments.length;
-
-	for (i = 0; i++ < len - 1;) {
-		proto = arguments[i].prototype;
-		for (p in proto) {
-			subject.prototype[p] = proto[p];
-		}
-	}
-}
 
 function Server() {
-	EventEmitter.call(this);
+	eventEmitter.EventEmitter.call(this);
 	this.socketId_ = null;
 }
-mixin(Server, EventEmitter);
+eventEmitter(Server);
 
 Server.prototype.listen = function(port, opt_address) {
 	var t = this;

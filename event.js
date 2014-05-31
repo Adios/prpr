@@ -1,8 +1,32 @@
+var eventEmitter = function() {
+/**
+ * If opt_func is given, returns an instance of the being mixed class.
+ */
+function eventEmitter(opt_func) {
+	return opt_func	? new (mixin(opt_func, EventEmitter))
+					: new EventEmitter;
+}
+
+function mixin(subject, var_objs) {
+	var proto, i, p, len = arguments.length;
+
+	for (i = 0; i++ < len - 1;) {
+		proto = arguments[i].prototype;
+		for (p in proto) {
+			subject.prototype[p] = proto[p];
+		}
+	}
+	return subject;
+}
+
 function EventEmitter() {
 	this.events_ = {};
 }
 
 EventEmitter.prototype.emit = function(type, var_args) {
+	if (!this.events_)
+		EventEmitter.call(this);
+
 	var listener = listeners = this.events_[type];
 
 	if (!listener)
@@ -31,6 +55,9 @@ EventEmitter.prototype.emit = function(type, var_args) {
 };
 
 EventEmitter.prototype.addListener = EventEmitter.prototype.on = function(type, listener) {
+	if (!this.events_)
+		EventEmitter.call(this);
+
 	if (typeof listener != 'function')
 		throw TypeError('listener must be a function.');
 
@@ -46,6 +73,9 @@ EventEmitter.prototype.addListener = EventEmitter.prototype.on = function(type, 
 };
 
 EventEmitter.prototype.removeListener = function(type, listener) {
+	if (!this.events_)
+		EventEmitter.call(this);
+
 	if (typeof listener != 'function')
 		throw TypeError('listener must be a function.');
 
@@ -79,3 +109,60 @@ EventEmitter.prototype.removeListener = function(type, listener) {
 
 	return this;
 };
+
+/**
+ * There are 2 fasions to employ eventEmitter() in users' code:
+ *
+ *     function Server() {}
+ *
+ * 1)  var server = eventEmitter(Server);
+ *     server.addListener('onMessage', function() {}).emit('onMessage');
+ *
+ * 2)  var server = new Server();
+ *     server.onMessage = new eventEmitter.Event('optional name');
+ *     server.onMessage.addListener(function() {}).dispatch();
+ *
+ * I order to provide the second usage fasion, the library maintains an
+ * EventEmitter object as a singleton containing all instances of Event()
+ * that registers each of themself as a unique event type in the loop.
+ */
+function EventLoop() {
+	this.instance_ = undefined;
+	this.count_ = 0;
+}
+EventLoop.prototype = {
+	get: function() {
+		if (!this.instance_)
+			this.instance_ = new EventEmitter();
+		return this.instance_;
+	},
+	count: function() { return this.count_++; }
+};
+
+function EventWrapper(opt_name) {
+	this.loop = eventLoop.get();
+	this.name = opt_name || '_MaayaErikaYukachiEvent_' + eventLoop.count();
+}
+EventWrapper.prototype = {
+	addListener: function(listener) {
+		this.loop.addListener(this.name, listener);
+		return this;
+	},
+	removeListener: function(listener) {
+		this.loop.removeListener(this.name, listener);
+		return this;
+	},
+	dispatch: function(var_args) {
+		var args = Array.prototype.slice.call(arguments);
+		args.unshift(this.name);
+		return this.loop.emit.apply(this.loop, args);
+	}
+};
+
+var eventLoop = new EventLoop();
+eventEmitter.Event = EventWrapper;
+eventEmitter.EventEmitter = EventEmitter;
+
+return eventEmitter;
+
+}();
