@@ -1,8 +1,12 @@
 if (http.server) {
-	var server = http.server();
+	http.server(onRequest).listen(1227);
 
-	server.on('message', function anonymous(msg) {
-		console.log('socket %d comes with: %s', msg.socket, msg.raw);
-		server.removeListener('message', anonymous);
-	}).listen(1227);
+	function onRequest(req, response) {
+		if (req.isHTTP) {
+			console.log('socket %d comes with:\n%s', req.client.socketId_, req.data);
+			console.dir(req.headers());
+		}
+		req.client.close();
+		//req.client.server.close();
+	}
 }
