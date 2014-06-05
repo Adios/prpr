@@ -9,6 +9,12 @@ if (http.server) {
 	prpr.onRequest.addListener(prprOnRequest);
 	prpr.onProxyRequest.addListener(prprOnProxyRequest);
 	prpr.listen(1227);
+
+	http.server(function(req, response) {
+		var body = 'hello world!';
+		response.writeHead(200, { 'Content-Length': body.length });
+		response.end(body);
+	}).listen(1989);
 }
 
 function prprOnRequest(req, response) {

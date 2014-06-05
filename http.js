@@ -7,8 +7,32 @@ var tcp = chrome.sockets.tcp,
 if (!tcp || !tcpServer || !Event)
 	return {};
 
+var STATUS_CODES = {
+	200: 'OK',
+	403: 'Forbidden',
+	404: 'Not Found',
+	405: 'Method Not Allowed',
+	418: 'I\'m a teapot',		// RFC 2324
+	501: 'Not Implemented'
+};
+
+var ESSENTIAL_YOUTUBE_HEADERS =
+	'Access-Control-Allow-Origin: http://www.youtube.com\r\n' +
+	'Access-Control-Allow-Credentials: true\r\n' +
+	'Timing-Allow-Origin: http://www.youtube.com\r\n' +
+	'X-Content-Type-Options: nosniff\r\n' +
+	'Server: gvs 1.0\r\n\r\n';
+
 function ab2str(buf) {
 	return String.fromCharCode.apply(null, new Uint8Array(buf));
+}
+function str2ab(str) {
+	var i, len = str.length,
+		buf = new ArrayBuffer(len),
+		bufView = new Uint8Array(buf);
+	for (i = 0; i < len; i++)
+		bufView[i] = str.charCodeAt(i);
+	return buf;
 }
 function warn(state, socket, code) {
 	console.warn('[%d][%s] ' + chrome.runtime.lastError.message + ' (%d)', socket, state, code);
@@ -120,7 +144,11 @@ Connection.prototype.establish = function() {
 	function dataFromClient(my) {
 		if (my.socketId != this.socketId_)
 			return;
-		this.owner_.onRequest.dispatch(new IngressMessage(this, my.data));
+
+		var req = new IngressMessage(this, my.data),
+			res = new EgressMessage(req);
+
+		this.owner_.onRequest.dispatch(req, res);
 	}
 
 	function errorFromClient(my) {
@@ -184,7 +212,11 @@ Connection.prototype.transitStates = function() {
 	function dataFromClientOnPipingState(my) {
 		if (my.socketId != this.socketId_)
 			return;
-		this.owner_.onProxyRequest.dispatch(new IngressMessage(this, my.data));
+
+		var req = new IngressMessage(this, my.data),
+			res = new EgressMessage(req);
+
+		this.owner_.onProxyRequest.dispatch(req, res);
 		this.pipe_.send(my.data);
 	}
 };
@@ -357,6 +389,45 @@ IngressMessage.prototype.parse = function() {
 
 	this.headers_ = headers;
 	return this;
+};
+
+/**
+ * Takes an IngressMessage object to encapsulate a response message.
+ */
+function EgressMessage(ingressMessage) {
+	this.req_ = ingressMessage;
+	this.headed_ = false;
+	this.keepAlive_ = false;
+}
+
+EgressMessage.prototype.writeHead = function(code, headers) {
+	var out = 'HTTP/1.1 ' + code + ' ' + STATUS_CODES[code] || 'Maaya saikou';
+
+	if (this.req_.header('Connection') == 'keep-alive') {
+		this.keepAlive_ = true;
+		headers['Connection'] = 'keep-alive';
+	}
+
+	if (typeof headers == 'object') {
+		Object.getOwnPropertyNames(headers).forEach(function(field) {
+			out += '\r\n' + field + ': ' + headers[field];
+		});
+	}
+	out += '\r\n' + ESSENTIAL_YOUTUBE_HEADERS;
+
+	this.req_.client.send(str2ab(out));
+	this.headed_ = true;
+};
+
+EgressMessage.prototype.end = function(opt_data) {
+	if (!this.headed_)
+		throw new Error('writeHead() must be called before calling end().');
+
+	if (opt_data)
+		this.req_.client.send(str2ab(opt_data));
+
+	if (!this.keepAlive_)
+		this.req_.client.close();
 };
 
 /**
