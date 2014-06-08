@@ -11,5 +11,7 @@
 	"sockets": {
 		"tcp": { "connect": "" },
 		"tcpServer": { "listen": "" }
-	}
+	},
+
+	"permissions": ["unlimitedStorage"]
 }
