@@ -237,7 +237,7 @@ Connection.prototype.send = function(data) {
 	});
 };
 
-Connection.prototype.pipe = function(host, data) {
+Connection.prototype.pipe = function(host, data, opt_mirrorCallback) {
 	if (this.pipe_)
 		return;
 
@@ -252,6 +252,7 @@ Connection.prototype.pipe = function(host, data) {
 
 	tcp.create({}, function(pipe) {
 		t.pipe_ = new Pipe(t, pipe.socketId);
+		t.pipe_.mirrorCallback = opt_mirrorCallback;
 		t.pipe_.establish(host, port, data);
 	});
 };
@@ -261,13 +262,22 @@ Connection.prototype.pipe = function(host, data) {
  */
 function Pipe(client, socket) {
 	Connection.call(this, client, socket);
+
+	// DIRTY IMPLEMENTATION: buffer for receiving YouTube video.
+	this.buffer = null;
+	this.bytesLeft = -1;
+
+	this.mirrorCallback = undefined;
 }
 
 Pipe.prototype.send = Connection.prototype.send;
 Pipe.prototype.establish = function(host, port, data) {
 	var t = this;
 
-	this.receiveListener_ = dataFromPeer.bind(this);
+	this.receiveListener_ = (typeof this.mirrorCallback == 'function')
+		? mirrorDataFromPeer.bind(this)
+		: dataFromPeer.bind(this);
+
 	this.receiveErrorListener_ = dataErrorFromPeer.bind(this);
 	tcp.onReceive.addListener(this.receiveListener_);
 	tcp.onReceiveError.addListener(this.receiveErrorListener_);
@@ -285,6 +295,35 @@ Pipe.prototype.establish = function(host, port, data) {
 	function dataFromPeer(my) {
 		if (my.socketId != this.socketId_)
 			return;
+		this.owner_.send(my.data);
+	}
+
+	function mirrorDataFromPeer(my) {
+		if (my.socketId != this.socketId_)
+			return;
+
+		if (this.buffer == null) {
+			var msg = new IngressMessage(null, my.data);
+			if (msg.http) {
+				this.bytesLeft = parseInt(msg.header('content-length'));
+				this.buffer = [];
+
+				var d = my.data.slice(msg.bodyBegin);
+				if (d.byteLength > 0) {
+					this.bytesLeft -= d.byteLength;
+					this.buffer.push(d);
+				}
+			}
+		} else {
+			this.buffer.push(my.data);
+			this.bytesLeft -= my.data.byteLength;
+		}
+
+		if (this.bytesLeft <= 0 && this.buffer) {
+			this.mirrorCallback(this.buffer);
+			this.buffer = null;
+		}
+
 		this.owner_.send(my.data);
 	}
 
@@ -307,6 +346,11 @@ Pipe.prototype.close = function() {
 	tcp.onReceiveError.removeListener(this.receiveErrorListener_);
 	tcp.disconnect(this.socketId_);
 	tcp.close(this.socketId_);
+
+	if (this.buffer) {
+		this.buffer = null;
+		this.bytesLeft = -1;
+	}
 
 	this.owner_.close();
 };
@@ -333,6 +377,7 @@ function IngressMessage(client, data) {
 
 	this.headersBegin = -1;
 	this.headersEnd = -1;
+	this.bodyBegin = -1;
 
 	(function determineMessageType() {
 		var	firstCRLF = this.data.indexOf('\r\n', 13),
@@ -385,6 +430,8 @@ IngressMessage.prototype.parse = function() {
 			if (colon != -1)
 				headers[line.substring(0, colon).toLowerCase()] = line.substring(colon + 2);
 		}
+
+		this.bodyBegin = headersEnd + 4;
 	}
 
 	this.headers_ = headers;

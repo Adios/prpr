@@ -29,7 +29,9 @@ function prprOnRequest(req, response) {
 
 	console.log('[%d][youtube] %c%s', req.client.socketId_, 'color: #3914af; font-weight: bold; font-style: italic;', id);
 
-	req.client.pipe(match[1], req.buffer);
+	req.client.pipe(match[1], req.buffer, function(result) {
+		console.log((new Blob(result)).size);
+	});
 }
 
 function prprOnProxyRequest(req, response) {
