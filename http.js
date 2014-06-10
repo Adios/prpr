@@ -470,7 +470,9 @@ EgressMessage.prototype.end = function(opt_data) {
 	if (!this.headed_)
 		throw new Error('writeHead() must be called before calling end().');
 
-	if (opt_data)
+	if (opt_data instanceof ArrayBuffer)
+		this.req_.client.send(opt_data);
+	else if (typeof opt_data == 'string' || opt_data instanceof String)
 		this.req_.client.send(str2ab(opt_data));
 
 	if (!this.keepAlive_)

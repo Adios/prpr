@@ -7,12 +7,61 @@ function ab2str(buf) {
 	return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
 
+function processError(error) {
+	console.log(error);
+}
+
 function Video(name) {
 	this.io = new IO;
 	this.dir = '/' + name + '/';
 	this.name = name;
 	this.index = new Index(this);
 }
+
+Video.prototype.serve = function(begin, end, success, failure) {
+	var t = this;
+	this.index.load(function() {
+		var result = t.index.lookup(begin, end);
+
+		if (result.length == 0)
+			failure();
+
+		if (result.length == 2 && typeof result[0] == 'number') {
+			t.segment(begin, end).load(function(data) {
+				success(data);
+			}, processError);
+			return;
+		}
+
+		t.assemble(begin, end, function(data) {
+			var reader = new FileReader;
+			reader.onloadend = function() {
+				success(this.result);
+			};
+			reader.readAsArrayBuffer(new Blob(data));
+		}, processError);
+	});
+};
+
+Video.prototype.retrieve = function(begin, end, success, failure) {
+	var t = this;
+
+	this.serve(begin, end, function(data) {
+		success(data);
+	}, function() {
+		var xhr = new XMLHttpRequest;
+		xhr.onloadend = function() {
+			if (this.status == 404) {
+				failure();
+			} else if (this.status == 200) {
+				success(this.response);
+			}
+		}
+		xhr.responseType = 'arraybuffer';
+		xhr.open('GET', 'http://localhost:1989/' + t.name + '/' + begin + '-' + end);
+		xhr.send();
+	});
+};
 
 Video.prototype.getDirectory = function(success) {
 	var t = this;
@@ -147,6 +196,14 @@ Index.prototype.lookup = function(begin, end) {
 	if (begin > end)
 		return result;
 
+	for (i = 0; i < len; i++) {
+		var rangeBegin = map[i][0],
+			rangeEnd = map[i][1];
+
+		if (rangeBegin == begin && rangeEnd == end)
+			return [rangeBegin, rangeEnd];
+	}
+
 	for (i = 0, cur = begin; i < len; i++) {
 		var rangeBegin = map[i][0],
 			rangeEnd = map[i][1];
@@ -178,39 +235,3 @@ return function(name) {
 }
 
 }();
-
-function ab2str(buf) {
-	return String.fromCharCode.apply(null, new Uint8Array(buf));
-}
-
-// 12345678901234567890123456
-// AAAAAAA
-//     AAABBBBBBB
-//           BBBBCCCCCCCCC
-//            BBBCCCCCCCCCDDD
-//
-//   AAAAABBBBBBBCCC
-
-/*
-var v = video('maaya');
-v.segment(0, 6).store('AAAAAAA', function() {
-	v.segment(4, 13).store('AAABBBBBBB', function() {
-		v.segment(10, 22).store('BBBBCCCCCCCCC', function() {
-			v.segment(11, 25).store('BBBCCCCCCCCCDDD', function() {
-				v.index.store(function(i, file) {
-					v.index.load(function(i) {
-						v.assemble(2, 16, function(data) {
-							var b = new Blob(data);
-							var reader = new FileReader();
-							reader.onloadend = function() {
-								console.log(ab2str(this.result));
-							};
-							reader.readAsArrayBuffer(b);
-						});
-					});
-				});
-			});
-		});
-	});
-});
-*/

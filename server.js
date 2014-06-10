@@ -2,47 +2,96 @@ if (http.server) {
 	var prpr = http.server(),
 		// $1: host, used to pipe to, prevent to parse header.
 		// $2: itag.
-		// $3: range.
-		// $4: video id, but there should exist better id retrival methods. FIXME
-		youPattern = /^GET http:\/\/([^\/]+)\/videoplayback?.*itag=([\d]+).*range=([\d-]+)[^]+Referer: .*watch\?v=(\w+)/m;
+		// $3: range begin.
+		// $4: range end.
+		// $5: video id, but there should exist better id retrival methods. FIXME
+		youPattern = /^GET http:\/\/([^\/]+)\/videoplayback?.*itag=([\d]+).*range=([\d]+)-([\d]+)[^]+Referer: .*watch\?v=(\w+)/m;
 
 	prpr.onRequest.addListener(prprOnRequest);
 	prpr.onProxyRequest.addListener(prprOnProxyRequest);
 	prpr.listen(1227);
 
-	http.server(function(req, response) {
-		var body = 'hello world!';
-		response.writeHead(200, { 'Content-Length': body.length });
-		response.end(body);
-	}).listen(1989);
+	http.server(onServe).listen(1989);
 }
 
-function prprOnRequest(req, response) {
-	var match, id;
+function onServe(req, response) {
+	var m;
 
-	if (!req.http || !(match = req.data.match(youPattern))) {
+	if (!req.http || !(m = req.uri.match(/^\/([^\/]+)\/(\d+)-(\d+)$/))) {
 		req.client.close();
 		return;
 	}
 
-	id = match[4] + ':'  + match[2] + ':' + match[3];
-
-	console.log('[%d][youtube] %c%s', req.client.socketId_, 'color: #3914af; font-weight: bold; font-style: italic;', id);
-
-	req.client.pipe(match[1], req.buffer, function(result) {
-		console.log((new Blob(result)).size);
+	video(m[1]).serve(m[2], m[3], function(data) {
+		response.writeHead(200, { 'Content-Length': data.byteLength });
+		response.end(data);
+	}, function() {
+		response.writeHead(404, { 'Content-Length': 0 });
+		response.end();
 	});
 }
 
-function prprOnProxyRequest(req, response) {
-	var match, id;
+function prprOnRequest(req, response) {
+	var m;
 
-	if (!req.http || !(match = req.data.match(youPattern))) {
+	if (!req.http || !(m = req.data.match(youPattern))) {
 		req.client.close();
 		return;
 	}
 
-	id = match[4] + ':'  + match[2] + ':' + match[3];
-
-	console.log('[%d][youtube] %c%s', req.client.socketId_, 'color: #876ed7; font-weight: bold; font-style: italic;', id);
+	/*
+	video(m[5], m[2]).retrieve(m[3], m[4], function(data) {
+		response.writeHead(200, { 'Content-Length': data.byteLength });
+		response.end(data);
+	}, function(v) {
+		req.client.pipe(m[1], req.buffer, function(data) {
+			v.store(new Blob(data), function() {console.log('ok!')});
+		});
+	});
+	*/
+//	console.log('[%d][youtube] %c%s', req.client.socketId_, 'color: #3914af; font-weight: bold; font-style: italic;', id);
 }
+
+function prprOnProxyRequest(req, response) {
+	var m;
+
+	if (!req.http || !(m = req.data.match(youPattern))) {
+		req.client.close();
+		return;
+	}
+
+	/*
+	video(m[5], m[2]).retrieve(m[3], m[4], function(data) {
+		response.writeHead(200, { 'Content-Length': data.byteLength });
+		response.end(data);
+	}, function(v) {
+		req.client.pipe_.mirrorCallback = function(data) {
+			v.store(new Blob(data), function() { console.log('ok') });
+		};
+	});
+	*/
+//	console.log('[%d][youtube] %c%s', req.client.socketId_, 'color: #876ed7; font-weight: bold; font-style: italic;', id);
+}
+
+// 12345678901234567890123456
+// AAAAAAA
+//     AAABBBBBBB
+//           BBBBCCCCCCCCC
+//            BBBCCCCCCCCCDDD
+//
+//   AAAAABBBBBBBCCC
+
+var v = video('maaya');
+v.segment(0, 6).store('AAAAAAA', function() {
+	v.segment(4, 13).store('AAABBBBBBB', function() {
+		v.segment(10, 22).store('BBBBCCCCCCCCC', function() {
+			v.segment(11, 25).store('BBBCCCCCCCCCDDD', function() {
+				v.index.store(function(i, file) {
+					v.retrieve(0, 10000, function(data) {
+						console.log(String.fromCharCode.apply(null, new Uint8Array(data)));
+					}, function() {});
+				});
+			});
+		});
+	});
+});

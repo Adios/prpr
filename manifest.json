@@ -13,5 +13,5 @@
 		"tcpServer": { "listen": "" }
 	},
 
-	"permissions": ["unlimitedStorage"]
+	"permissions": ["unlimitedStorage", "<all_urls>"]
 }
