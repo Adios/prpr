@@ -51,11 +51,12 @@ IO.prototype.write = function(path, opt_begin, data, opt_success, opt_failure) {
 		return;
 	}
 
+	var t = this;
 	this.cwd.getFile(path, {create: true}, function(entry) {
 		entry.createWriter(function(writer) {
 			if (opt_success) {
 				writer.onwriteend = function(e) {
-					opt_success(entry);
+					opt_success(entry, t);
 				};
 			}
 			writer.onerror = function(e) {
@@ -97,19 +98,22 @@ IO.prototype.read = function(path, opt_begin, opt_end, success, opt_failure) {
 		return;
 	}
 
+	var t = this;
 	this.cwd.getFile(path, {}, function(entry) {
 		entry.file(function(file) {
 			var reader = new FileReader;
 
 			reader.onloadend = function(e) {
-				success(this.result);
+				success(this.result, t);
 			};
 			reader.onerror = function(e) {
 				console.error('FileReader error in read(): ' + e.toString());
 			};
 			reader.readAsArrayBuffer(file);
 		}, error);
-	}, error);
+	}, function(error) {
+		opt_failure(error, t);
+	});
 };
 
 IO.prototype.mkdir = function(path, success, opt_failure) {
@@ -117,9 +121,11 @@ IO.prototype.mkdir = function(path, success, opt_failure) {
 		this.init_(this.mkdir.bind(this, path, success, opt_failure));
 		return;
 	}
+
+	var t = this;
 	this.cwd.getDirectory(path, {create: true}, function(entry) {
-		success(entry);
-	}, error);
+		success(entry, t);
+	}, opt_failure);
 };
 
 IO.prototype.chdir = function(entry) {
