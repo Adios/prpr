@@ -7,23 +7,25 @@ var requestFileSystem = window.requestFileSystem || window.webkitRequestFileSyst
 if (!requestFileSystem || !persistentStorage)
 	return {};
 
-function error(e) {
+function processError(e) {
 	console.dir(e);
 }
 
 function IO() {
 	this.root = null;
-	this.cwd = null;
+	this.entry = null;
+
+	this.writeNotFoundRetried_ = false;
 }
 
 IO.prototype.init_ = function(callback) {
 	var t = this;
 	persistentStorage.requestQuota(STORAGE_CAPACITY, function (grantedBytes) {
 		requestFileSystem(window.PERSISTENT, grantedBytes, function(fs) {
-			t.cwd = t.root = fs.root;
+			t.entry = t.root = fs.root;
 			callback();
-		}, error);
-	}, error);
+		}, processError);
+	}, processError);
 };
 
 IO.prototype.write = function(path, opt_begin, data, opt_success, opt_failure) {
@@ -46,13 +48,15 @@ IO.prototype.write = function(path, opt_begin, data, opt_success, opt_failure) {
 		break;
 	}
 
-	if (!this.cwd) {
+	if (!this.entry) {
 		this.init_(this.write.bind(this, path, opt_begin, data, opt_success, opt_failure));
 		return;
 	}
 
 	var t = this;
-	this.cwd.getFile(path, {create: true}, function(entry) {
+	this.entry.getFile(path, {create: true}, function(entry) {
+		// FIXME: createWriter() fails on a newly-created entry with NotFoundError
+		// in some unknown conditions.
 		entry.createWriter(function(writer) {
 			if (opt_success) {
 				writer.onwriteend = function(e) {
@@ -64,8 +68,18 @@ IO.prototype.write = function(path, opt_begin, data, opt_success, opt_failure) {
 			};
 
 			writer.write(data instanceof Blob ? data : new Blob([data]));
-		}, error);
-	}, error);
+			t.writeNotFoundRetried_ = false;
+		}, function(error) {
+			// FIXME: retry again if createWriter() fails because NotFoundError.
+			if (error.name == 'NotFoundError' && !t.writeNotFoundRetried_) {
+				console.log('createWriter failed on %s, retrying.', path);
+				t.writeNotFoundRetried_ = true;
+				t.write(path, opt_begin, data, opt_success, opt_failure);
+				return;
+			}
+			processError(error);
+		});
+	}, processError);
 };
 
 IO.prototype.read = function(path, opt_begin, opt_end, success, opt_failure) {
@@ -93,13 +107,13 @@ IO.prototype.read = function(path, opt_begin, opt_end, success, opt_failure) {
 	if (typeof success != 'function')
 		throw new TypeError('IO.read() must be invoked with a callback.');
 
-	if (!this.cwd) {
+	if (!this.entry) {
 		this.init_(this.read.bind(this, path, opt_begin, opt_end, success, opt_failure));
 		return;
 	}
 
 	var t = this;
-	this.cwd.getFile(path, {}, function(entry) {
+	this.entry.getFile(path, {}, function(entry) {
 		entry.file(function(file) {
 			var reader = new FileReader;
 
@@ -110,45 +124,46 @@ IO.prototype.read = function(path, opt_begin, opt_end, success, opt_failure) {
 				console.error('FileReader error in read(): ' + e.toString());
 			};
 			reader.readAsArrayBuffer(file);
-		}, error);
+		}, processError);
 	}, function(error) {
 		opt_failure(error, t);
 	});
 };
 
 IO.prototype.mkdir = function(path, success, opt_failure) {
-	if (!this.cwd) {
+	if (!this.entry) {
 		this.init_(this.mkdir.bind(this, path, success, opt_failure));
 		return;
 	}
 
 	var t = this;
-	this.cwd.getDirectory(path, {create: true}, function(entry) {
+	this.entry.getDirectory(path, {create: true}, function(entry) {
 		success(entry, t);
 	}, opt_failure);
 };
 
 IO.prototype.chdir = function(entry) {
-	if (!this.cwd) {
+	if (!this.entry) {
 		this.init_(this.chdir.bind(this, path, success, opt_failure));
 		return;
 	}
-	this.cwd = entry;
+
+	this.entry = entry;
 	return this;
 };
 
 IO.prototype.rmdir = function(path, opt_success, opt_failure) {
-	if (!this.cwd) {
+	if (!this.entry) {
 		this.init_(this.rmdir.bind(this, path, opt_success, opt_failure));
 		return;
 	}
 
-	this.cwd.getDirectory(path, {}, function(entry) {
+	this.entry.getDirectory(path, {}, function(entry) {
 		entry.removeRecursively(function() {
 			if (opt_success)
 				opt_success();
-		}, error);
-	}, error);
+		}, processError);
+	}, processError);
 };
 
 return IO;
