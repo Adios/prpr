@@ -52,13 +52,13 @@ Video.prototype.retrieve = function(begin, end, success, failure) {
 		var xhr = new XMLHttpRequest;
 		xhr.onloadend = function() {
 			if (this.status == 404) {
-				failure();
+				failure(t);
 			} else if (this.status == 200) {
 				success(this.response);
 			}
 		}
 		xhr.responseType = 'arraybuffer';
-		xhr.open('GET', 'http://localhost:1989/' + t.name + '/' + begin + '-' + end);
+		xhr.open('GET', 'http://192.168.0.103:1989/' + t.name + '/' + begin + '-' + end);
 		xhr.send();
 	});
 };
@@ -147,18 +147,24 @@ function Index(video) {
 	this.local_ = [];
 }
 
-Index.prototype.store = function(success) {
+Index.prototype.store = function(opt_success) {
 	var t = this;
 
-	// findRange algorithms needs an increasely sorted table.
+	// the algorithm of lookup() requires a table which is
+	// increasingly sorted and with each value being unique.
 	this.local_.sort(function(a, b) {
 		if (a[0] == b[0])
 			return a[1] - b[1];
 		return a[0] - b[0];
 	});
 
+	this.local_ = this.local_.reduce(function(p, c) {
+		if (p.indexOf(c) < 0) p.push(c);
+		return p;
+	}, []);
+
 	this.video_.io.write('index', new Blob([JSON.stringify(this.local_)]), function(file) {
-		success(t, file);
+		if (opt_success) opt_success(t, file);
 	});
 };
 
