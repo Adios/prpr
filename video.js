@@ -72,9 +72,14 @@ Video.prototype.retrieve = function(begin, end, success, failure) {
 				});
 				success(this.response);
 			}
-		}
+		};
+		xhr.ontimeout = function() {
+			debug(t.name, 'Video.retrieve', '%s-%s timeout, fallback to proxy fetch.', begin, end);
+			failure(t);
+		};
 		xhr.responseType = 'arraybuffer';
 		xhr.open('GET', 'http://192.168.0.103:1989/' + t.name + '/' + begin + '-' + end);
+		xhr.timeout = 1000;
 		xhr.send();
 	});
 };
