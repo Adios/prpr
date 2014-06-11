@@ -164,7 +164,7 @@ Connection.prototype.close = function() {
 		return;
 	this.closed_ = true;
 
-	console.log('[%d][close on client] Being closed.', this.socketId_);
+	console.log('[%d][Connection] Being closed.', this.socketId_);
 
 	// remove self from server's connection queues.
 	this.owner_.close(this);
@@ -201,24 +201,13 @@ Connection.prototype.close = function() {
  * The state of a connection won't be changed back, since that indicates
  * there is an error and the connection will simply be closed.
  */
-Connection.prototype.transitStates = function() {
+Connection.prototype.transitStates = function(receiveListener) {
 	if (!this.pipe_)
 		return;
 
 	tcp.onReceive.removeListener(this.receiveListener_);
-	this.receiveListener_ = dataFromClientOnPipingState.bind(this);
+	this.receiveListener_ = receiveListener.bind(this);
 	tcp.onReceive.addListener(this.receiveListener_);
-
-	function dataFromClientOnPipingState(my) {
-		if (my.socketId != this.socketId_)
-			return;
-
-		var req = new IngressMessage(this, my.data),
-			res = new EgressMessage(req);
-
-		this.owner_.onProxyRequest.dispatch(req, res);
-		this.pipe_.send(my.data);
-	}
 };
 
 /**
@@ -238,8 +227,10 @@ Connection.prototype.send = function(data) {
 };
 
 Connection.prototype.pipe = function(host, data, opt_mirrorCallback) {
-	if (this.pipe_)
+	if (this.pipe_) {
+		this.pipe_.send(data);
 		return;
+	}
 
 	var t = this,
 		p = host.indexOf(':'),
@@ -251,8 +242,11 @@ Connection.prototype.pipe = function(host, data, opt_mirrorCallback) {
 	}
 
 	tcp.create({}, function(pipe) {
-		t.pipe_ = new Pipe(t, pipe.socketId);
-		t.pipe_.mirrorCallback = opt_mirrorCallback;
+		if (typeof opt_mirrorCallback == 'function') {
+			t.pipe_ = new ReplicablePipe(t, pipe.socketId);
+			t.pipe_.mirrorCallback = opt_mirrorCallback;
+		} else t.pipe_ = new Pipe(t, pipe.socketId);
+
 		t.pipe_.establish(host, port, data);
 	});
 };
@@ -262,22 +256,13 @@ Connection.prototype.pipe = function(host, data, opt_mirrorCallback) {
  */
 function Pipe(client, socket) {
 	Connection.call(this, client, socket);
-
-	// DIRTY IMPLEMENTATION: buffer for receiving YouTube video.
-	this.buffer = null;
-	this.bytesLeft = -1;
-
-	this.mirrorCallback = undefined;
 }
 
 Pipe.prototype.send = Connection.prototype.send;
 Pipe.prototype.establish = function(host, port, data) {
 	var t = this;
 
-	this.receiveListener_ = (typeof this.mirrorCallback == 'function')
-		? mirrorDataFromPeer.bind(this)
-		: dataFromPeer.bind(this);
-
+	this.receiveListener_ = dataFromPeer.bind(this);
 	this.receiveErrorListener_ = dataErrorFromPeer.bind(this);
 	tcp.onReceive.addListener(this.receiveListener_);
 	tcp.onReceiveError.addListener(this.receiveErrorListener_);
@@ -288,42 +273,25 @@ Pipe.prototype.establish = function(host, port, data) {
 			t.close();
 			return;
 		}
-		t.owner_.transitStates();
+		t.owner_.transitStates(dataFromClientOnPipingState);
 		t.send(data);
 	});
+
+	// this will be bound to connection.
+	function dataFromClientOnPipingState(my) {
+		if (my.socketId != this.socketId_)
+			return;
+
+		var req = new IngressMessage(this, my.data),
+			res = new EgressMessage(req);
+
+		this.owner_.onProxyRequest.dispatch(req, res);
+		this.pipe_.send(my.data);
+	}
 
 	function dataFromPeer(my) {
 		if (my.socketId != this.socketId_)
 			return;
-		this.owner_.send(my.data);
-	}
-
-	function mirrorDataFromPeer(my) {
-		if (my.socketId != this.socketId_)
-			return;
-
-		if (this.buffer == null) {
-			var msg = new IngressMessage(null, my.data);
-			if (msg.http) {
-				this.bytesLeft = parseInt(msg.header('content-length'));
-				this.buffer = [];
-
-				var d = my.data.slice(msg.bodyBegin);
-				if (d.byteLength > 0) {
-					this.bytesLeft -= d.byteLength;
-					this.buffer.push(d);
-				}
-			}
-		} else {
-			this.buffer.push(my.data);
-			this.bytesLeft -= my.data.byteLength;
-		}
-
-		if (this.bytesLeft <= 0 && this.buffer) {
-			this.mirrorCallback(this.buffer);
-			this.buffer = null;
-		}
-
 		this.owner_.send(my.data);
 	}
 
@@ -340,19 +308,107 @@ Pipe.prototype.close = function() {
 		return;
 	this.closed_ = true;
 
-	console.log('[%d][close on pipe] Being closed.', this.socketId_);
+	console.log('[%d][Pipe] Being closed.', this.socketId_);
 
 	tcp.onReceive.removeListener(this.receiveListener_);
 	tcp.onReceiveError.removeListener(this.receiveErrorListener_);
 	tcp.disconnect(this.socketId_);
 	tcp.close(this.socketId_);
 
-	if (this.buffer) {
-		this.buffer = null;
-		this.bytesLeft = -1;
+	this.owner_.close();
+};
+
+function ReplicablePipe(client, socket) {
+	Pipe.call(this, client, socket);
+
+	this.buffer_ = null;
+	this.bytesLeft_ = -1;
+	this.mirrorCallback = undefined;
+}
+
+ReplicablePipe.prototype.send = Pipe.prototype.send;
+ReplicablePipe.prototype.establish = function(host, port, data) {
+	var t = this;
+
+	this.receiveListener_ = dataFromPeer.bind(this);
+	this.receiveErrorListener_ = dataErrorFromPeer.bind(this);
+	tcp.onReceive.addListener(this.receiveListener_);
+	tcp.onReceiveError.addListener(this.receiveErrorListener_);
+
+	tcp.connect(this.socketId_, host, port, function(result) {
+		if (result < 0) {
+			warn('connect from pipe', t.socketId_, result);
+			t.close();
+			return;
+		}
+		t.owner_.transitStates(dataFromClientOnPipingState);
+		t.send(data);
+	});
+
+	// this will be bound to connection.
+	function dataFromClientOnPipingState(my) {
+		if (my.socketId != this.socketId_)
+			return;
+
+		var req = new IngressMessage(this, my.data),
+			res = new EgressMessage(req);
+
+		this.owner_.onProxyRequest.dispatch(req, res);
 	}
 
-	this.owner_.close();
+	function dataFromPeer(my) {
+		if (my.socketId != this.socketId_)
+			return;
+
+		if (this.buffer_ == null) {
+			var msg = new IngressMessage(null, my.data);
+			if (msg.http) {
+				this.bytesLeft_ = parseInt(msg.header('content-length'));
+				this.buffer_ = [];
+
+				var d = my.data.slice(msg.bodyBegin);
+				if (d.byteLength > 0) {
+					this.bytesLeft_ -= d.byteLength;
+					this.buffer_.push(d);
+				}
+			}
+		} else {
+			this.buffer_.push(my.data);
+			this.bytesLeft_ -= my.data.byteLength;
+		}
+
+		if (this.bytesLeft_ <= 0 && this.buffer_) {
+			this.mirrorCallback(this.buffer_);
+			this.buffer_ = null;
+		}
+
+		this.owner_.send(my.data);
+	}
+
+	function dataErrorFromPeer(my) {
+		if (my.socketId != this.socketId_)
+			return;
+		console.log('[%d][receive error on pipe] Code: %d.', my.socketId, my.resultCode);
+		this.close();
+	}
+};
+
+/**
+ *  ReplicablePipe doesn't need to close Client connection.
+ */
+ReplicablePipe.prototype.close = function() {
+	if (this.closed_)
+		return;
+	this.closed_ = true;
+
+	console.log('[%d][ReplicablePipe] Being closed.', this.socketId_);
+
+	tcp.onReceive.removeListener(this.receiveListener_);
+	tcp.onReceiveError.removeListener(this.receiveErrorListener_);
+	tcp.disconnect(this.socketId_);
+	tcp.close(this.socketId_);
+
+	this.owner_.pipe_ = null;
 };
 
 /**
