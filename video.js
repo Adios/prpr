@@ -7,6 +7,15 @@ function ab2str(buf) {
 	return String.fromCharCode.apply(null, new Uint8Array(buf));
 }
 
+function debug(name, state, opt_message, va_args) {
+	var log = '[%s][%s] %c',
+		color = 'color: #ff7800;';
+
+	if (opt_message)
+		log += opt_message;
+	console.log.apply(console, [log, name, state, color].concat(Array.prototype.splice.call(arguments, 3)));
+}
+
 function processError(error) {
 	console.log(error);
 }
@@ -23,8 +32,10 @@ Video.prototype.serve = function(begin, end, success, failure) {
 	this.index.load(function() {
 		var result = t.index.lookup(begin, end);
 
-		if (result.length == 0)
+		if (result.length == 0) {
 			failure();
+			return;
+		}
 
 		if (result.length == 2 && typeof result[0] == 'number') {
 			t.segment(begin, end).load(function(data) {
@@ -54,6 +65,11 @@ Video.prototype.retrieve = function(begin, end, success, failure) {
 			if (this.status == 404) {
 				failure(t);
 			} else if (this.status == 200) {
+				t.segment(begin, end).store(this.response, function() {
+					t.index.store(function() {
+						debug(t.name, 'Video.retrieve', '%s-%s saves ok.', begin, end);
+					});
+				});
 				success(this.response);
 			}
 		}
@@ -82,14 +98,16 @@ Video.prototype.assemble = function(begin, end, success, failure) {
 		return failure();
 	}
 
-	// FIXME: timeout
+	// FIXME: 1. needs a timer?
+	//        2. needs to maintain the order of piece loading.
 	for (var i = 0; i < len; i++) {
 		var s = new Segment(this, segments[i][0][0], segments[i][0][1]);
 
-		console.log(segments[i]);
-
 		s.load(
 			(function(i) {
+				debug(s.video_.name, 'Video.assemble', 'reading %s-%s from segment %s-%s.',
+					segments[i][1], segments[i][2], segments[i][0][0], segments[i][0][1]);
+
 				return function(data) {
 					fragment.push(data.slice(segments[i][1], segments[i][2] + 1));
 					eachState.push(true);
@@ -176,7 +194,7 @@ Index.prototype.load = function(success, failure) {
 		success(t);
 	}, function(error) {
 		if (error.name == 'NotFoundError') {
-			console.log('[%s] index not found, creating one.', t.video_.name);
+			debug(t.video_.name, 'Index.load', 'Index not found, creates a new one.');
 			t.video_.getDirectory(function() {
 				t.store(function() {
 					t.load(success, failure);

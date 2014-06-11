@@ -227,7 +227,8 @@ Connection.prototype.send = function(data) {
 };
 
 Connection.prototype.pipe = function(host, data, opt_mirrorCallback) {
-	if (this.pipe_) {
+	if (this.pipe_ instanceof ReplicablePipe && typeof opt_mirrorCallback == 'function') {
+			this.pipe_.mirrorCallback = opt_mirrorCallback;
 		this.pipe_.send(data);
 		return;
 	}
@@ -506,7 +507,7 @@ function EgressMessage(ingressMessage) {
 EgressMessage.prototype.writeHead = function(code, headers) {
 	var out = 'HTTP/1.1 ' + code + ' ' + STATUS_CODES[code] || 'Maaya saikou';
 
-	if (this.req_.header('Connection') == 'keep-alive') {
+	if (this.req_.header('proxy-connection') == 'keep-alive' || this.req_.header('connection') == 'keep-alive') {
 		this.keepAlive_ = true;
 		headers['Connection'] = 'keep-alive';
 	}
