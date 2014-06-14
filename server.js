@@ -1,3 +1,5 @@
+var VNS = 'http://192.168.0.103:3216';
+
 if (http.server) {
 	var prpr = http.server(),
 		// $1: host, used to pipe to, prevent to parse header.
@@ -47,9 +49,11 @@ function prprOnRequest(req, response) {
 		response.end(data);
 	}, function(v) {
 		req.client.pipe(m[1], req.buffer, function(data) {
-			v.segment(parseInt(m[3]), parseInt(m[4])).store(new Blob(data), function() {
+			v.segment(parseInt(m[3]), parseInt(m[4])).store(new Blob(data), function(s) {
 				v.index.store(function() {
-					debug(req.client.socketId_, m[5] + ':' + m[2], '%s-%s save ok.', m[3], m[4]);
+					s.update(VNS, function() {
+						debug(req.client.socketId_, v.name, '%s save & update ok.', s.name_);
+					});
 				});
 			});
 		});
@@ -70,9 +74,11 @@ function prprOnProxyRequest(req, response) {
 		response.end(data);
 	}, function(v) {
 		req.client.pipe(m[1], req.buffer, function(data) {
-			v.segment(parseInt(m[3]), parseInt(m[4])).store(new Blob(data), function() {
+			v.segment(parseInt(m[3]), parseInt(m[4])).store(new Blob(data), function(s) {
 				v.index.store(function() {
-					debug(req.client.socketId_, m[5] + ':' + m[2], '%s-%s save ok.', m[3], m[4]);
+					s.update(VNS, function() {
+						debug(req.client.socketId_, v.name, '%s save & update ok.', s.name_);
+					});
 				});
 			});
 		});

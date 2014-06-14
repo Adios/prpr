@@ -1,5 +1,7 @@
 var video = function() {
 
+var VNS = 'http://192.168.0.103:3216';
+
 if (!IO)
 	return;
 
@@ -60,27 +62,25 @@ Video.prototype.retrieve = function(begin, end, success, failure) {
 	this.serve(begin, end, function(data) {
 		success(data);
 	}, function() {
-		var xhr = new XMLHttpRequest;
-		xhr.onloadend = function() {
-			if (this.status == 404) {
-				failure(t);
-			} else if (this.status == 200) {
-				t.segment(begin, end).store(this.response, function() {
+		var s = t.segment(begin, end);
+		s.lookup(VNS, function(result) {
+			s.fetch(JSON.parse(result), function(data) {
+				success(data);
+				s.store(data, function() {
 					t.index.store(function() {
-						debug(t.name, 'Video.retrieve', '%s-%s saves ok.', begin, end);
+						s.update(VNS, function() {
+							debug(t.name, 'Video.retrieve', '%s saves & update ok.', s.name_);
+						});
 					});
 				});
-				success(this.response);
-			}
-		};
-		xhr.ontimeout = function() {
-			debug(t.name, 'Video.retrieve', '%s-%s timeout, fallback to proxy fetch.', begin, end);
+			}, function() {
+				debug(t.name, 'Video.retrieve', '%s-%s not found on all peers.', begin, end);
+				failure(t);
+			});
+		}, function() {
+			debug(t.name, 'Video.retrieve', '%s-%s not found on vns.', begin, end);
 			failure(t);
-		};
-		xhr.responseType = 'arraybuffer';
-		xhr.open('GET', 'http://192.168.0.103:1989/' + t.name + '/' + begin + '-' + end);
-		xhr.timeout = 1000;
-		xhr.send();
+		});
 	});
 };
 
@@ -155,6 +155,115 @@ Segment.prototype.load = function(success, opt_failure) {
 	}, function(error) {
 		opt_failure(error);
 	});
+};
+
+Segment.prototype.lookup = function(server, success, failure) {
+	var xhr = new XMLHttpRequest;
+
+	xhr.onloadend = function() {
+		if (this.status == 200) {
+			success(this.response);
+			return;
+		}
+
+		if (this.status == 404)
+			failure();
+	};
+
+	xhr.ontimeout = failure;
+	xhr.timeout = 2000;
+	xhr.open('GET', server + '/' + this.video_.name + '/' + this.name_);
+	xhr.send();
+};
+
+Segment.prototype.update = function(server, success, failure) {
+	var xhr = new XMLHttpRequest;
+
+	xhr.onloadend = function() {
+		if (this.status == 200) {
+			success(this.response);
+			return;
+		}
+
+		if (this.status == 404)
+			failure();
+	};
+
+	xhr.ontimeout = failure;
+	xhr.timeout = 2000;
+	xhr.open('POST', server + '/' + this.video_.name + '/' + this.name_);
+	xhr.send();
+};
+
+Segment.prototype.fetch = function(targets, success, failure) {
+	var i, xhrStates = [],
+		len = targets.length,
+		t = this;
+
+	for (i = 0; i < len; i++) {
+		var xhr = new XMLHttpRequest,
+			index = xhrStates.push([null, xhr]) - 1;
+
+		debug(t.name_, 'Segment.fetch', 'trying fetch from %s...', targets[i]);
+
+		xhr.onloadend = (function(i) {
+			return function() {
+				var state = false;
+
+				if (this.status == 404) {
+					xhrStates[i][0] = state;
+
+					if (xhrStates.every(function(s) { return s[0] == false; }))
+						failure();
+					return;
+				}
+
+				if (this.status == 200) {
+					state = true;
+
+					if (xhrStates.some(function(s) { return s[0] == true; })) {
+						console.log('already ok, ignore');
+						xhrStates[i][0] = state;
+					} else {
+						xhrStates[i][0] = state;
+
+						xhrStates.forEach(function(e) {
+							if (e[0] == null && e[1] !== this)
+								e[1].abort();
+						});
+
+						success(this.response);
+					}
+				}
+			};
+		})(index);
+
+		xhr.onerror = (function(i) {
+			return function() {
+				xhrStates[i][0] = false;
+			};
+		})(index);
+
+		xhr.onabort = function() {
+			console.log('i get aborted', this);
+		};
+		xhr.ontimeout = (function(i) {
+			return function() {
+				xhrStates[i][0] = false;
+
+				console.log('i get timeouted', xhrStates);
+				if (xhrStates.every(function(s) { return s[0] == false; })) {
+					debug(t.name_, 'Segment.fetch', 'Timeout, fallback to proxy fetch.');
+					failure();
+				}
+			};
+		})(index);
+
+		xhr.timeout = 5000;
+		xhr.responseType = 'arraybuffer';
+		xhr.open('GET', 'http://' + targets[i] + ':1989/' + t.video_.name + '/' + this.begin_ + '-' + this.end_);
+		xhr.send();
+	}
 };
 
 function Index(video) {
